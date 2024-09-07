@@ -47,7 +47,7 @@ pub trait LocalApiClient: Clone {
 #[derive(Clone)]
 pub struct LocalApi<T: LocalApiClient> {
     /// Path to the tailscaled socket
-    client: T,
+    pub client: T,
 }
 
 impl LocalApi<UnixStreamClient> {

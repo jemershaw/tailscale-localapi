@@ -43,7 +43,10 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[async_trait]
 pub trait LocalApiClient: Clone {
     async fn get(&self, uri: Uri) -> Result<Response<Body>>;
-    async fn post<T: Serialize + Sized + Send, C>(&self, uri: Uri, body: Option<T>) -> Result<C>
+    async fn get_json<C>(&self, uri: Uri) -> Result<C>
+    where
+        C: DeserializeOwned;
+    async fn post_json<C, T>(&self, uri: Uri, body: Option<T>) -> Result<C>
     where
         T: Serialize + Sized + Send,
         C: DeserializeOwned;
@@ -163,7 +166,23 @@ impl LocalApiClient for UnixStreamClient {
         Ok(response)
     }
 
-    async fn post<T, C>(&self, uri: Uri, body: Option<T>) -> Result<C>
+    async fn get_json<C>(&self, uri: Uri) -> Result<C>
+    where
+        C: DeserializeOwned,
+    {
+        let request = Request::builder()
+            .method("GET")
+            .header(HOST, "local-tailscaled.sock")
+            .uri(uri)
+            .body(Body::empty())?;
+
+        let response = self.request(request).await?;
+
+        let body = hyper::body::aggregate(response.into_body()).await?;
+        Ok(serde_json::de::from_reader(body.reader())?)
+    }
+
+    async fn post_json<C, T>(&self, uri: Uri, body: Option<T>) -> Result<C>
     where
         T: Serialize + Sized + Send,
         C: DeserializeOwned,
@@ -236,7 +255,31 @@ impl LocalApiClient for TcpWithPasswordClient {
         Ok(response)
     }
 
-    async fn post<T, C>(&self, uri: Uri, body: Option<T>) -> Result<C>
+    async fn get_json<C>(&self, uri: Uri) -> Result<C>
+    where
+        C: DeserializeOwned,
+    {
+        let request = Request::builder()
+            .method("GET")
+            .header(HOST, "local-tailscaled.sock")
+            .header(
+                AUTHORIZATION,
+                format!(
+                    "Basic {}",
+                    base64::engine::general_purpose::STANDARD_NO_PAD
+                        .encode(format!(":{}", self.password))
+                ),
+            )
+            .uri(uri)
+            .body(Body::empty())?;
+
+        let response = self.request(request).await?;
+
+        let body = hyper::body::aggregate(response.into_body()).await?;
+        Ok(serde_json::de::from_reader(body.reader())?)
+    }
+
+    async fn post_json<C, T>(&self, uri: Uri, body: Option<T>) -> Result<C>
     where
         T: Serialize + Sized + Send,
         C: DeserializeOwned,
@@ -247,6 +290,7 @@ impl LocalApiClient for TcpWithPasswordClient {
         } else {
             Body::empty()
         };
+
         let request = Request::builder()
             .method("POST")
             .header(HOST, "local-tailscaled.sock")

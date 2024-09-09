@@ -50,6 +50,10 @@ pub trait LocalApiClient: Clone {
     where
         T: Serialize + Sized + Send,
         C: DeserializeOwned;
+    async fn patch_json<C, T>(&self, uri: Uri, body: Option<T>) -> Result<C>
+    where
+        T: Serialize + Sized + Send,
+        C: DeserializeOwned;
 }
 
 /// Client for the local tailscaled socket
@@ -194,6 +198,29 @@ impl LocalApiClient for UnixStreamClient {
         let body = hyper::body::aggregate(response.into_body()).await?;
         Ok(serde_json::de::from_reader(body.reader())?)
     }
+
+    async fn patch_json<C, T>(&self, uri: Uri, body: Option<T>) -> Result<C>
+    where
+        T: Serialize + Sized + Send,
+        C: DeserializeOwned,
+    {
+        let req_body = if let Some(b) = body {
+            let s = serde_json::to_string(&b)?;
+            Body::from(s)
+        } else {
+            Body::empty()
+        };
+        let request = Request::builder()
+            .method("PATCH")
+            .header(HOST, "local-tailscaled.sock")
+            .uri(uri)
+            .body(req_body)?;
+
+        let response = self.request(request).await?;
+
+        let body = hyper::body::aggregate(response.into_body()).await?;
+        Ok(serde_json::de::from_reader(body.reader())?)
+    }
 }
 
 impl UnixStreamClient {
@@ -283,6 +310,38 @@ impl LocalApiClient for TcpWithPasswordClient {
 
         let request = Request::builder()
             .method("POST")
+            .header(HOST, "local-tailscaled.sock")
+            .header(
+                AUTHORIZATION,
+                format!(
+                    "Basic {}",
+                    base64::engine::general_purpose::STANDARD_NO_PAD
+                        .encode(format!(":{}", self.password))
+                ),
+            )
+            .uri(uri)
+            .body(req_body)?;
+
+        let response = self.request(request).await?;
+
+        let body = hyper::body::aggregate(response.into_body()).await?;
+        Ok(serde_json::de::from_reader(body.reader())?)
+    }
+
+    async fn patch_json<C, T>(&self, uri: Uri, body: Option<T>) -> Result<C>
+    where
+        T: Serialize + Sized + Send,
+        C: DeserializeOwned,
+    {
+        let req_body = if let Some(b) = body {
+            let s = serde_json::to_string(&b)?;
+            Body::from(s)
+        } else {
+            Body::empty()
+        };
+
+        let request = Request::builder()
+            .method("PATCH")
             .header(HOST, "local-tailscaled.sock")
             .header(
                 AUTHORIZATION,

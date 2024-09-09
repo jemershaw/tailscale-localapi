@@ -10,7 +10,8 @@ use http::{
     header::{AUTHORIZATION, HOST},
     Request, Response, Uri,
 };
-use hyper::{body::Buf, Body};
+use hyper::body::{Body, Buf};
+use serde::Serialize;
 use tokio::net::{TcpSocket, UnixStream};
 pub use types::*;
 
@@ -41,6 +42,11 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[async_trait]
 pub trait LocalApiClient: Clone {
     async fn get(&self, uri: Uri) -> Result<Response<Body>>;
+    async fn post<T: Serialize + Sized + Send>(
+        &self,
+        uri: Uri,
+        body: Option<T>,
+    ) -> Result<Response<Body>>;
 }
 
 /// Client for the local tailscaled socket
@@ -156,6 +162,27 @@ impl LocalApiClient for UnixStreamClient {
         let response = self.request(request).await?;
         Ok(response)
     }
+
+    async fn post<T: Serialize + Sized + Send>(
+        &self,
+        uri: Uri,
+        body: Option<T>,
+    ) -> Result<Response<Body>> {
+        let req_body = if let Some(b) = body {
+            let s = serde_json::to_string(&b)?;
+            Body::from(s)
+        } else {
+            Body::empty()
+        };
+        let request = Request::builder()
+            .method("POST")
+            .header(HOST, "local-tailscaled.sock")
+            .uri(uri)
+            .body(req_body)?;
+
+        let response = self.request(request).await?;
+        Ok(response)
+    }
 }
 
 impl UnixStreamClient {
@@ -202,6 +229,35 @@ impl LocalApiClient for TcpWithPasswordClient {
             )
             .uri(uri)
             .body(Body::empty())?;
+
+        let response = self.request(request).await?;
+        Ok(response)
+    }
+
+    async fn post<T: Serialize + Sized + Send>(
+        &self,
+        uri: Uri,
+        body: Option<T>,
+    ) -> Result<Response<Body>> {
+        let req_body = if let Some(b) = body {
+            let s = serde_json::to_string(&b)?;
+            Body::from(s)
+        } else {
+            Body::empty()
+        };
+        let request = Request::builder()
+            .method("POST")
+            .header(HOST, "local-tailscaled.sock")
+            .header(
+                AUTHORIZATION,
+                format!(
+                    "Basic {}",
+                    base64::engine::general_purpose::STANDARD_NO_PAD
+                        .encode(format!(":{}", self.password))
+                ),
+            )
+            .uri(uri)
+            .body(req_body)?;
 
         let response = self.request(request).await?;
         Ok(response)

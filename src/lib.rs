@@ -11,6 +11,7 @@ use http::{
     Request, Response, Uri,
 };
 use hyper::body::{Body, Buf};
+use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tokio::net::{TcpSocket, UnixStream};
 pub use types::*;
@@ -42,11 +43,10 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[async_trait]
 pub trait LocalApiClient: Clone {
     async fn get(&self, uri: Uri) -> Result<Response<Body>>;
-    async fn post<T: Serialize + Sized + Send>(
-        &self,
-        uri: Uri,
-        body: Option<T>,
-    ) -> Result<Response<Body>>;
+    async fn post<T: Serialize + Sized + Send, C>(&self, uri: Uri, body: Option<T>) -> Result<C>
+    where
+        T: Serialize + Sized + Send,
+        C: DeserializeOwned;
 }
 
 /// Client for the local tailscaled socket
@@ -163,11 +163,11 @@ impl LocalApiClient for UnixStreamClient {
         Ok(response)
     }
 
-    async fn post<T: Serialize + Sized + Send>(
-        &self,
-        uri: Uri,
-        body: Option<T>,
-    ) -> Result<Response<Body>> {
+    async fn post<T, C>(&self, uri: Uri, body: Option<T>) -> Result<C>
+    where
+        T: Serialize + Sized + Send,
+        C: DeserializeOwned,
+    {
         let req_body = if let Some(b) = body {
             let s = serde_json::to_string(&b)?;
             Body::from(s)
@@ -181,7 +181,9 @@ impl LocalApiClient for UnixStreamClient {
             .body(req_body)?;
 
         let response = self.request(request).await?;
-        Ok(response)
+
+        let body = hyper::body::aggregate(response.into_body()).await?;
+        Ok(serde_json::de::from_reader(body.reader())?)
     }
 }
 
@@ -234,11 +236,11 @@ impl LocalApiClient for TcpWithPasswordClient {
         Ok(response)
     }
 
-    async fn post<T: Serialize + Sized + Send>(
-        &self,
-        uri: Uri,
-        body: Option<T>,
-    ) -> Result<Response<Body>> {
+    async fn post<T, C>(&self, uri: Uri, body: Option<T>) -> Result<C>
+    where
+        T: Serialize + Sized + Send,
+        C: DeserializeOwned,
+    {
         let req_body = if let Some(b) = body {
             let s = serde_json::to_string(&b)?;
             Body::from(s)
@@ -260,7 +262,9 @@ impl LocalApiClient for TcpWithPasswordClient {
             .body(req_body)?;
 
         let response = self.request(request).await?;
-        Ok(response)
+
+        let body = hyper::body::aggregate(response.into_body()).await?;
+        Ok(serde_json::de::from_reader(body.reader())?)
     }
 }
 

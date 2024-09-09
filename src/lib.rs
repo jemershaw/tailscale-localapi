@@ -119,30 +119,20 @@ impl<T: LocalApiClient> LocalApi<T> {
 
     /// Get the status of the local node.
     pub async fn status(&self) -> Result<Status> {
-        let response = self
-            .client
-            .get(Uri::from_static("/localapi/v0/status"))
-            .await?;
-        let body = hyper::body::aggregate(response.into_body()).await?;
-        let status = serde_json::de::from_reader(body.reader())?;
-
-        Ok(status)
+        self.client
+            .get_json(Uri::from_static("/localapi/v0/status"))
+            .await
     }
 
     /// Request whois information for an address in the tailnet.
     pub async fn whois(&self, address: SocketAddr) -> Result<Whois> {
-        let response = self
-            .client
-            .get(
+        self.client
+            .get_json(
                 format!("/localapi/v0/whois?addr={address}")
                     .parse()
                     .unwrap(),
             )
-            .await?;
-        let body = hyper::body::aggregate(response.into_body()).await?;
-        let whois = serde_json::de::from_reader(body.reader())?;
-
-        Ok(whois)
+            .await
     }
 }
 
